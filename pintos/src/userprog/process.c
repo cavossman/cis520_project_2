@@ -54,12 +54,71 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+  // Proj2 implementation************************************
+  int argv_offsets[128];
+  int argc = 0;
+
+  printf("\n%s\n", file_name);
+  int fn_len = strlen(file_name) + 1; // Include NULL terminator
+
+  char *token, *save_ptr;
+   for (token = strtok_r (file_name, " ", &save_ptr);
+        token != NULL;
+        token = strtok_r (NULL, " ", &save_ptr))
+  {
+    argv_offsets[argc++] = token - file_name;
+  }
+  //*********************************************************
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+
+  // Proj2 implementation************************************
+  if(success)
+  {
+    void * top_of_stack = if_.esp;
+
+    // Decrement SP and copy args
+    if_.esp -= fn_len;
+    memcpy(if_.esp, file_name, fn_len);
+    char * start = if_.esp;
+
+    // Align SP to word boundary
+    printf("stuffing %d bytes\n", (unsigned int)if_.esp % 4);
+    if_.esp -= (unsigned int)if_.esp % 4;
+
+    // Decrement SP and insert NULL sentinel
+    if_.esp -= sizeof(int);
+    *(int *)if_.esp = 0;
+
+    // Push argv onto stack
+    for(int i = argc - 1; i >= 0; i--)
+    {
+      // Decrement SP and push argv elements
+      if_.esp -= sizeof(char *);
+      *(char **)if_.esp = start + argv_offsets[i];
+    }
+
+    // Push argv pointer onto stack
+    char ** argv = (char **)if_.esp;
+    if_.esp -= sizeof(char**);
+    *(char ***)if_.esp = argv;
+
+    // Push argc onto stack
+    if_.esp -= sizeof(int);
+    *(int *)if_.esp = argc;
+
+    // Push garbage return address onto stack
+    if_.esp -= sizeof(int);
+    *(int *)if_.esp = 0;
+
+    hex_dump((int)if_.esp, (void *)if_.esp, top_of_stack - if_.esp, 1);
+  }
+  // ********************************************************
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
