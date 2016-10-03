@@ -3,9 +3,22 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "threas/vaddr.h"
+#include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
+static bool sys_halt();
+static bool sys_exit();
+static bool sys_exec();
+static bool sys_wait();
+static bool sys_create();
+static bool sys_remove();
+static bool sys_open();
+static bool sys_filesize();
+static bool sys_read();
+static bool sys_write();
+static bool sys_seek();
+static bool sys_tell();
+static bool sys_close();
 
 void
 syscall_init (void) 
@@ -66,18 +79,18 @@ syscall_handler (struct intr_frame *f UNUSED)
   }  
 }
 
-bool sys_halt() {}
-bool sys_exit() {}
-bool sys_exec() {}
-bool sys_wait() {}
-bool sys_create() {}
-bool sys_remove() {}
-bool sys_open() {}
-bool sys_filesize() {}
-bool sys_read() {}
-bool sys_write() {}
-bool sys_seek() {}
-bool sys_tell() {}
-bool sys_close() {}
+static bool sys_halt() {}
+static bool sys_exit() {}
+static bool sys_exec() {}
+static bool sys_wait() {}
+static bool sys_create() {}
+static bool sys_remove() {}
+static bool sys_open() {}
+static bool sys_filesize() {}
+static bool sys_read() {}
+static bool sys_write() {}
+static bool sys_seek() {}
+static bool sys_tell() {}
+static bool sys_close() {}
 
 
