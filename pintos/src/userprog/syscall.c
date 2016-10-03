@@ -7,19 +7,22 @@
 #include "threads/init.h"
 
 static void syscall_handler (struct intr_frame *);
-static bool sys_halt();
-static bool sys_exit();
-static bool sys_exec();
-static bool sys_wait();
-static bool sys_create();
-static bool sys_remove();
-static bool sys_open();
-static bool sys_filesize();
-static bool sys_read();
-static bool sys_write();
-static bool sys_seek();
-static bool sys_tell();
-static bool sys_close();
+
+typedef int pid_t;
+
+static void sys_halt(void);
+static void sys_exit(int status);
+static pid_t sys_exec(const char* cmd_line);
+static int sys_wait(pid_t pid);
+static bool sys_create(const char* file, unsigned initial_size);
+static bool sys_remove(const char* file);
+static int sys_open(const char* file);
+static int sys_filesize(int fd);
+static int sys_read(int fd, void* buffer, unsigned size);
+static int sys_write(int fd, const void* buffer, unsigned size);
+static void sys_seek(int fd, unsigned position);
+static unsigned sys_tell(int fd);
+static void sys_close(int fd);
 
 void
 syscall_init (void) 
@@ -42,59 +45,63 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_halt();
       break;
     case SYS_EXIT:
-      sys_exit();
+      //sys_exit();
       break;
     case SYS_EXEC:
-      sys_exec();
+      //sys_exec();
       break;
     case SYS_WAIT:
-      sys_wait();
+      //sys_wait();
       break;
     case SYS_CREATE:
-      sys_create();
+      //sys_create();
       break;
     case SYS_REMOVE:
-      sys_remove();
+      //sys_remove();
       break;
     case SYS_OPEN:
-      sys_open();
+      //sys_open();
       break;
     case SYS_FILESIZE:
-      sys_filesize();
+      //sys_filesize();
       break;
     case SYS_READ:
-      sys_read();
+      //sys_read();
       break;
     case SYS_WRITE:
-      sys_write();
+      //sys_write();
       break;
     case SYS_SEEK:
-      sys_seek();
+      //sys_seek();
       break;
     case SYS_TELL:
-      sys_tell();
+      //sys_tell();
       break;
     case SYS_CLOSE:
-      sys_close();
+      //sys_close();
       break;
   }  
 }
 
-static bool sys_halt()
+static void sys_halt()
 {
   shutdown_power_off();
 }
-static bool sys_exit() {}
-static bool sys_exec() {}
-static bool sys_wait() {}
-static bool sys_create() {}
-static bool sys_remove() {}
-static bool sys_open() {}
-static bool sys_filesize() {}
-static bool sys_read() {}
-static bool sys_write() {}
-static bool sys_seek() {}
-static bool sys_tell() {}
-static bool sys_close() {}
+
+static void sys_exit(int status)
+{
+  
+}
+static pid_t sys_exec(const char* cmd_line) {}
+static int sys_wait(pid_t pid) {}
+static bool sys_create(const char* file, unsigned initial_size) {}
+static bool sys_remove(const char* file) {}
+static int sys_open(const char* file) {}
+static int sys_filesize(int fd) {}
+static int sys_read(int fd, void* buffer, unsigned size) {}
+static int sys_write(int fd, const void* buffer, unsigned size) {}
+static void sys_seek(int fd, unsigned position) {}
+static unsigned sys_tell(int fd) {}
+static void sys_close(int fd) {}
 
 
