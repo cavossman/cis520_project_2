@@ -4,6 +4,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/init.h"
 
 static void syscall_handler (struct intr_frame *);
 static bool sys_halt();
@@ -79,7 +80,10 @@ syscall_handler (struct intr_frame *f UNUSED)
   }  
 }
 
-static bool sys_halt() {}
+static bool sys_halt()
+{
+  shutdown_power_off();
+}
 static bool sys_exit() {}
 static bool sys_exec() {}
 static bool sys_wait() {}
