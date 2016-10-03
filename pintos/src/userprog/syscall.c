@@ -33,20 +33,26 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  if (!is_user_vaddr(f))
-  {
-	  //sys_exit(-1);
-	  return;
-  }
+  int* args;
+
+  if (!is_user_vaddr(f->esp))
+	  sys_exit(-1);
 	
+
+
   switch (* (int *) f->esp)
   {
     case SYS_HALT:
+    {
       sys_halt();
       break;
+    }
     case SYS_EXIT:
-      //sys_exit();
+    {
+      get_args(f, &args, 1);
+      sys_exit(args[0]);
       break;
+    }
     case SYS_EXEC:
       //sys_exec();
       break;
@@ -90,8 +96,9 @@ static void sys_halt()
 
 static void sys_exit(int status)
 {
-  
+  thread_exit();
 }
+
 static pid_t sys_exec(const char* cmd_line) {}
 static int sys_wait(pid_t pid) {}
 static bool sys_create(const char* file, unsigned initial_size) {}
@@ -104,4 +111,12 @@ static void sys_seek(int fd, unsigned position) {}
 static unsigned sys_tell(int fd) {}
 static void sys_close(int fd) {}
 
-
+void get_args(struct intr_frame *f, int** args, int numArgs)
+{
+  for (int i = 0; i < numArgs; i++)
+  {
+    *args[i] = f->esp + i + 1;
+    if (!is_user_vaddr(*args[i]))
+	    sys_exit(-1);
+  }
+}
