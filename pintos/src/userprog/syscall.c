@@ -54,11 +54,17 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     }
     case SYS_EXEC:
-      //sys_exec();
+    {
+      get_args(f, &args, 1);
+      sys_exec(args[0]);
       break;
+    }
     case SYS_WAIT:
-      //sys_wait();
+    {
+      get_args(f, &args, 1);
+      sys_wait(args[0]);
       break;
+    }
     case SYS_CREATE:
       //sys_create();
       break;
@@ -96,11 +102,25 @@ static void sys_halt()
 
 static void sys_exit(int status)
 {
+  struct thread* cur = thread_current();
+  if (thread_is_alive(cur->parent))
+    cur->child_process->status = status;
   thread_exit();
 }
 
-static pid_t sys_exec(const char* cmd_line) {}
-static int sys_wait(pid_t pid) {}
+static pid_t sys_exec(const char* cmd_line) 
+{
+  //Implementation incomplete
+  pid_t pid = process_execute(cmd_line);
+
+  return pid;
+}
+
+static int sys_wait(pid_t pid) 
+{
+  return process_wait(pid); //Need to implement this function in process.c
+}
+
 static bool sys_create(const char* file, unsigned initial_size) {}
 static bool sys_remove(const char* file) {}
 static int sys_open(const char* file) {}
