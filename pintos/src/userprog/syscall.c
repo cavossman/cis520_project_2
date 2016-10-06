@@ -6,6 +6,8 @@
 #include "threads/vaddr.h"
 #include "threads/init.h"
 
+struct lock file_lock;
+
 static void syscall_handler (struct intr_frame *);
 
 typedef int pid_t;
@@ -56,20 +58,22 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_EXEC:
     {
       get_args(f, &args, 1);
-      sys_exec(args[0]);
+      f->eax = sys_exec(args[0]);
       break;
     }
     case SYS_WAIT:
     {
       get_args(f, &args, 1);
-      sys_wait(args[0]);
+      f->eax = sys_wait(args[0]);
       break;
     }
     case SYS_CREATE:
-      //sys_create();
+      get_args(f, &args, 2);
+      f->eax = sys_create(args[0], args[1]);
       break;
     case SYS_REMOVE:
-      //sys_remove();
+      get_args(f, &args, 1);
+      f->eax = sys_remove(args[0]);
       break;
     case SYS_OPEN:
       //sys_open();
@@ -121,8 +125,20 @@ static int sys_wait(pid_t pid)
   return process_wait(pid);
 }
 
-static bool sys_create(const char* file, unsigned initial_size) {}
-static bool sys_remove(const char* file) {}
+static bool sys_create(const char* file, unsigned initial_size) 
+{
+  lock_acquire(&file_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+  return success;
+}
+static bool sys_remove(const char* file) 
+{
+  lock_acquire(&file_lock);
+  bool success = filesys_remove(file, initial_size);
+  lock_release(&file_lock);
+  return success;
+}
 static int sys_open(const char* file) {}
 static int sys_filesize(int fd) {}
 static int sys_read(int fd, void* buffer, unsigned size) {}
