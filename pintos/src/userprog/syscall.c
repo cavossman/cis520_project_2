@@ -7,6 +7,12 @@
 #include "threads/init.h"
 
 struct lock file_lock;
+struct process_file
+{
+  struct file* file;
+  int file_descriptor;
+  struct list_elem elem;
+};
 
 static void syscall_handler (struct intr_frame *);
 
@@ -76,7 +82,8 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_remove(args[0]);
       break;
     case SYS_OPEN:
-      //sys_open();
+      get_args(f, &args, 1);
+      f->eax = sys_open(args[0]);
       break;
     case SYS_FILESIZE:
       //sys_filesize();
@@ -114,8 +121,31 @@ static void sys_exit(int status)
 
 static pid_t sys_exec(const char* cmd_line) 
 {
-  //Implementation incomplete
   pid_t pid = process_execute(cmd_line);
+
+  struct thread* cur = thread_current();
+
+  struct child_process* cp;
+  bool cp_found = false;
+
+  struct list_elem* e = list_begin(&cur->children);
+  
+  while (e != list_end(&cur->children) && !cp_found)
+  {
+    cp = list_entry(e, struct child_process, elem);
+    if (pid == cp->pid)
+      cp_found = true;
+    else
+      e = list_next(e);
+  }
+
+  ASSERT(cp_found);
+
+  while(cp->load == NOT_LOADED)
+    barrier();
+
+  if (cp->load == LOAD_FAILURE)
+    return -1;
 
   return pid;
 }
@@ -135,11 +165,30 @@ static bool sys_create(const char* file, unsigned initial_size)
 static bool sys_remove(const char* file) 
 {
   lock_acquire(&file_lock);
-  bool success = filesys_remove(file, initial_size);
+  bool success = filesys_remove(file);
   lock_release(&file_lock);
   return success;
 }
-static int sys_open(const char* file) {}
+static int sys_open(const char* file) 
+{
+  lock_acquire(&file_lock);
+  struct file* f = filesys_open(file);
+
+  if(f != NULL)
+  {
+    lock_release(&file_lock);
+    return -1;
+  }
+
+  struct thread* cur = thread_current();
+  struct process_file* pf = malloc(sizeof(struct process_file));
+  pf->file = f;
+  pf->file_descriptor = cur->fd++;
+  list_push_back(&cur->file_list, &pf->elem);
+
+  lock_release(&file_lock);
+  return pf->file_descriptor;
+}
 static int sys_filesize(int fd) {}
 static int sys_read(int fd, void* buffer, unsigned size) {}
 static int sys_write(int fd, const void* buffer, unsigned size) {}

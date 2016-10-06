@@ -15,6 +15,13 @@ struct child_process
 
 };
 
+enum
+{
+  NOT_LOADED = 0,
+  LOAD_SUCCESS,
+  LOAD_FAILURE
+};
+
 void syscall_init (void);
 
 #endif /* userprog/syscall.h */

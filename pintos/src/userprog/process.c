@@ -148,19 +148,19 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  struct thread* t = thread_current();
+  struct thread* cur = thread_current();
   
   bool cp_found = false;
   struct child_process* cp;
-  struct list_elem* e;
+  struct list_elem* e = list_begin(&cur->children);
   
-  for (e = list_begin(&t->children); 
-       e != list_end(&t->children);
-       e = list_next(e))
+  while (e != list_end(&cur->children) && !cp_found)
   {
-      cp = list_entry(e, struct child_process, elem);
-      if (child_tid == cp->pid)
-        cp_found = true;
+    cp = list_entry(e, struct child_process, elem);
+    if (child_tid == cp->pid)
+      cp_found = true;
+    else
+      e = list_next(e);
   }
 
   if (!cp_found || cp->wait)
