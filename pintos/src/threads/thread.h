@@ -111,6 +111,9 @@ struct thread
     bool donezo;                        /* This process? It's DONESZO         */
     struct semaphore completion_sema;   /* Only upped once process is donezo  */
     int exit_status;                    /* Invalid until donezo == true       */
+
+    int fd;
+    struct list file_list;
   };
 
 /* If false (default), use round-robin scheduler.

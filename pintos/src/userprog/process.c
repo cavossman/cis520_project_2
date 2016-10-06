@@ -23,7 +23,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -40,6 +39,10 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
+  /* Chop off args before passing to thread_create so name is ONLY the executable */
+  char *save_ptr;
+  file_name = strtok_r((char *)file_name, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -70,7 +73,6 @@ start_process (void *file_name_)
 
   if (!success) 
   {
-    printf("FAIL\n");
     thread_exit ();
   }
   /* Start the user process by simulating a return from an
@@ -128,6 +130,7 @@ process_exit (void)
   {
     sema_up(&cur->completion_sema);
   }
+  printf("%s: exit(%d)\n", cur->name, cur->exit_status);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -241,7 +244,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Get file name (first token) */
   char *save_ptr;
-  file_name = strtok_r(file_name, " ", &save_ptr);
+  file_name = strtok_r((char *)file_name, " ", &save_ptr);
 
   /* Open executable file. */
   file = filesys_open (file_name);

@@ -6,6 +6,14 @@
 #include "threads/vaddr.h"
 #include "threads/init.h"
 
+struct lock file_lock;
+struct process_file
+{
+  struct file* file;
+  int file_descriptor;
+  struct list_elem elem;
+};
+
 static void syscall_handler (struct intr_frame *);
 
 typedef int pid_t;
@@ -36,11 +44,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   int args[3];
 
   if (!is_user_vaddr(f->esp))
-  {
-    printf("<NOT USER VADDR\n>");
 	  sys_exit(-1);
-  }
-
 
   switch (* (int *) f->esp)
   {
@@ -51,42 +55,46 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     case SYS_EXIT:
     {
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       sys_exit(args[0]);
       break;
     }
     case SYS_EXEC:
     {
-      get_args(f, &args, 1);
-      sys_exec(args[0]);
+      get_args(f, args, 1);
+      f->eax = sys_exec(args[0]);
       break;
     }
     case SYS_WAIT:
     {
-      get_args(f, &args, 1);
-      sys_wait(args[0]);
+      get_args(f, args, 1);
+      f->eax = sys_wait(args[0]);
       break;
     }
     case SYS_CREATE:
-      //sys_create();
+      get_args(f, args, 2);
+      f->eax = sys_create(args[0], args[1]);
       break;
     case SYS_REMOVE:
-      //sys_remove();
+      get_args(f, args, 1);
+      f->eax = sys_remove(args[0]);
       break;
     case SYS_OPEN:
-      //sys_open();
+      get_args(f, args, 1);
+      f->eax = sys_open(args[0]);
       break;
     case SYS_FILESIZE:
-      //sys_filesize();
+      get_args(f, args, 1);
+      f->eax = sys_filesize(args[0]);
       break;
     case SYS_READ:
       //sys_read();
       break;
     case SYS_WRITE:
+      get_args(f, args, 3);
       //sys_write();
-      get_args(f, &args, 3);
       printf("%s", args[1]);
-      break;
+	  break;
     case SYS_SEEK:
       //sys_seek();
       break;
@@ -98,6 +106,30 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
   }  
 }
+
+static struct file* get_file(int file_descriptor)
+{
+  /* Get current thread                                     */
+  struct thread* cur = thread_current();
+  struct list_elem* cur_elem;
+
+  /* Iterate over file list of the current thread           */
+  for(cur_elem = list_begin(&cur->file_list);
+      cur_elem != list_end(&cur->file_list);
+      cur_elem = list_next(cur_elem))
+  {
+    /* Get the process file which holds the current element */
+    struct process_file *pf = list_entry(cur_elem, struct process_file, elem);
+    if(pf != NULL && file_descriptor == pf->file_descriptor)
+      {
+        /* Return the file pointer if descriptors match     */
+        return pf->file;  
+      }
+  }
+  /* Return NULL if the file does not exist                 */  
+  return NULL;
+}
+
 
 static void sys_halt()
 {
@@ -120,13 +152,62 @@ static pid_t sys_exec(const char* cmd_line)
 
 static int sys_wait(pid_t pid) 
 {
-  return process_wait(pid); //Need to implement this function in process.c
+  return process_wait(pid);
 }
 
-static bool sys_create(const char* file, unsigned initial_size) {}
-static bool sys_remove(const char* file) {}
-static int sys_open(const char* file) {}
-static int sys_filesize(int fd) {}
+static bool sys_create(const char* file, unsigned initial_size) 
+{
+  lock_acquire(&file_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+  return success;
+}
+static bool sys_remove(const char* file) 
+{
+  lock_acquire(&file_lock);
+  bool success = filesys_remove(file);
+  lock_release(&file_lock);
+  return success;
+}
+static int sys_open(const char* file) 
+{
+  lock_acquire(&file_lock);
+  struct file* f = filesys_open(file);
+
+  if(f == NULL)
+  {
+    lock_release(&file_lock);
+    return -1;
+  }
+
+  struct thread* cur = thread_current();
+  struct process_file* pf = malloc(sizeof(struct process_file));
+  pf->file = f;
+  pf->file_descriptor = cur->fd++;
+  list_push_back(&cur->file_list, &pf->elem);
+
+  lock_release(&file_lock);
+  return pf->file_descriptor;
+}
+
+
+static int sys_filesize(int fd) {
+  int file_size;
+
+  lock_acquire(&file_lock);       /* Acquire file lock                */
+  struct file* f = get_file(fd);  /* Get file to be sized             */
+  if(f == NULL)
+  {
+    lock_release(&file_lock);     /* If file does not exist, release  */
+    return -1;                       /* lock and return error         */
+  }
+
+  file_size = file_length(f);     /* Get file size                    */
+  lock_release(&file_lock);       /* Release lock                     */
+  return file_size;               /* Return file size                 */
+}
+
+
 static int sys_read(int fd, void* buffer, unsigned size) {}
 static int sys_write(int fd, const void* buffer, unsigned size) {}
 static void sys_seek(int fd, unsigned position) {}
