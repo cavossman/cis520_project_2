@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -101,9 +102,9 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
  
-    struct list children;
-    tid_t parent;
-    struct child_process* child_process;
+    /* Project 2 Implementation */
+    bool donezo;                        /* This process? It's DONESZO         */
+    struct semaphore completion_sema;   /* Only upped once process is donezo  */
   };
 
 /* If false (default), use round-robin scheduler.
@@ -143,5 +144,8 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 bool thread_is_alive(int pid);
+
+/* Project 2 Implementation */
+struct thread *thread_get(int pid);
 
 #endif /* threads/thread.h */

@@ -33,7 +33,6 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  printf("<syscall_handler(%d)>\n", * (int *) f->esp);
   int args[3];
 
   if (!is_user_vaddr(f->esp))
@@ -84,10 +83,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       //sys_read();
       break;
     case SYS_WRITE:
-      printf("<SYS_WRITE>\n");
       //sys_write();
       get_args(f, &args, 3);
-      printf("(writing) - %s\n", args[1]);
+      printf("%s", args[1]);
       break;
     case SYS_SEEK:
       //sys_seek();
@@ -109,9 +107,6 @@ static void sys_halt()
 static void sys_exit(int status)
 {
   thread_exit();
-  struct thread* cur = thread_current();
-  if (thread_is_alive(cur->parent))
-    cur->child_process->status = status;
 }
 
 static pid_t sys_exec(const char* cmd_line) 
@@ -137,13 +132,17 @@ static void sys_seek(int fd, unsigned position) {}
 static unsigned sys_tell(int fd) {}
 static void sys_close(int fd) {}
 
-void get_args(struct intr_frame *f, int* arg, int n)
+void get_args(struct intr_frame *f, int* args, int n)
 {
-  // Causing seg faults
+  // Stack pointer is pointing at the syscall number (int), args start just past that
+  int * stack_args = f->esp + sizeof(int);
+
   for (int i = 0; i < n; i++)
-  {
-    *args[i] = f->esp + i + 1;
-    if (!is_user_vaddr(*args[i]))
-	    sys_exit(-1);
-  }
+    {
+      if (!is_user_vaddr((const void *)stack_args))
+	      sys_exit(-1);
+
+      // Copy arg from stack to caller's buffer
+      args[i] = stack_args[i];
+    }
 }

@@ -65,8 +65,6 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  printf("Post load in setup_stack()\n");
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
 
@@ -81,7 +79,6 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-    printf("JUMPING\n");
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -96,10 +93,18 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  for(int i = 0; i < 0x000FFFFF; i++);
-  // USE SEMAPHORE
+  struct thread * wait_thd = thread_get(child_tid);
+
+  // Ensure thread exists
+  if(wait_thd == NULL) return(-1);
+
+  // Wait for that thread to complete if it's not already donezo
+  if(!wait_thd->donezo)
+  {
+    sema_down(&wait_thd->completion_sema);
+  }
 }
 
 /* Free the current process's resources. */
@@ -125,6 +130,13 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  // Wake up all processes waiting on our completion
+  cur->donezo = true;
+  while(!list_empty(&cur->completion_sema.waiters))
+  {
+    sema_up(&cur->completion_sema);
+  }
 }
 
 /* Sets up the CPU for running user code in the current
@@ -467,7 +479,6 @@ setup_stack (void **esp, char *args_string)
   int argv_offsets[128];
   int argc = 0;
 
-  printf("\n%s\n", args_string);
   int fn_len = strlen(args_string) + 1; // Include NULL terminator
 
   char *token, *save_ptr;
@@ -486,7 +497,6 @@ setup_stack (void **esp, char *args_string)
   char * start = *esp;
 
   // Align SP to word boundary
-  printf("stuffing %d bytes\n", (unsigned int)*esp % 4);
   *esp -= (unsigned int)*esp % 4;
 
   // Decrement SP and insert NULL sentinel
@@ -514,7 +524,8 @@ setup_stack (void **esp, char *args_string)
   *esp -= sizeof(int);
   *(int *)*esp = 0xDEADBEEF;
 
-  hex_dump((int)*esp, (void *)*esp, top_of_stack - *esp, 1);
+  // DEBUG
+  //hex_dump((int)*esp, (void *)*esp, top_of_stack - *esp, 1);
 
   return true;
 
