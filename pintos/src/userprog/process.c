@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -147,7 +148,35 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  struct thread* t = thread_current();
+  
+  bool cp_found = false;
+  struct child_process* cp;
+  struct list_elem* e;
+  
+  for (e = list_begin(&t->children); 
+       e != list_end(&t->children);
+       e = list_next(e))
+  {
+      cp = list_entry(e, struct child_process, elem);
+      if (child_tid == cp->pid)
+        cp_found = true;
+  }
+
+  if (!cp_found || cp->wait)
+    return -1;
+
+  cp->wait = true;
+
+  while (!cp->exit)
+    barrier();
+
+  int status = cp->status;
+
+  list_remove(&cp->elem);
+  free(cp);
+  
+  return status;
 }
 
 /* Free the current process's resources. */

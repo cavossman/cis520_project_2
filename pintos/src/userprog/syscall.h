@@ -7,6 +7,8 @@ struct child_process
 {
   int pid;
   int load;
+  bool wait;
+  bool exit;
   int status;
 
   struct list_elem elem;
