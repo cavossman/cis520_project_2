@@ -17,9 +17,12 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -41,7 +44,8 @@ process_execute (const char *file_name)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
+
   return tid;
 }
 
@@ -54,22 +58,6 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
-  // Proj2 implementation************************************
-  int argv_offsets[128];
-  int argc = 0;
-
-  printf("\n%s\n", file_name);
-  int fn_len = strlen(file_name) + 1; // Include NULL terminator
-
-  char *token, *save_ptr;
-   for (token = strtok_r (file_name, " ", &save_ptr);
-        token != NULL;
-        token = strtok_r (NULL, " ", &save_ptr))
-  {
-    argv_offsets[argc++] = token - file_name;
-  }
-  //*********************************************************
-
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -77,54 +65,14 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
-  // Proj2 implementation************************************
-  if(success)
-  {
-    void * top_of_stack = if_.esp;
-
-    // Decrement SP and copy args
-    if_.esp -= fn_len;
-    memcpy(if_.esp, file_name, fn_len);
-    char * start = if_.esp;
-
-    // Align SP to word boundary
-    printf("stuffing %d bytes\n", (unsigned int)if_.esp % 4);
-    if_.esp -= (unsigned int)if_.esp % 4;
-
-    // Decrement SP and insert NULL sentinel
-    if_.esp -= sizeof(int);
-    *(int *)if_.esp = 0;
-
-    // Push argv onto stack
-    for(int i = argc - 1; i >= 0; i--)
-    {
-      // Decrement SP and push argv elements
-      if_.esp -= sizeof(char *);
-      *(char **)if_.esp = start + argv_offsets[i];
-    }
-
-    // Push argv pointer onto stack
-    char ** argv = (char **)if_.esp;
-    if_.esp -= sizeof(char**);
-    *(char ***)if_.esp = argv;
-
-    // Push argc onto stack
-    if_.esp -= sizeof(int);
-    *(int *)if_.esp = argc;
-
-    // Push garbage return address onto stack
-    if_.esp -= sizeof(int);
-    *(int *)if_.esp = 0;
-
-    hex_dump((int)if_.esp, (void *)if_.esp, top_of_stack - if_.esp, 1);
-  }
-  // ********************************************************
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
 
+  if (!success) 
+  {
+    printf("FAIL\n");
+    thread_exit ();
+  }
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -145,9 +93,18 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  struct thread * wait_thd = thread_get(child_tid);
+
+  // Ensure thread exists
+  if(wait_thd == NULL) return(-1);
+
+  // Wait for that thread to complete if it's not already donezo
+  if(!wait_thd->donezo)
+  {
+    sema_down(&wait_thd->completion_sema);
+  }
 }
 
 /* Free the current process's resources. */
@@ -173,6 +130,13 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  // Wake up all processes waiting on our completion
+  cur->donezo = true;
+  while(!list_empty(&cur->completion_sema.waiters))
+  {
+    sema_up(&cur->completion_sema);
+  }
 }
 
 /* Sets up the CPU for running user code in the current
@@ -254,7 +218,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char* args_string);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -279,6 +243,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
+
+  /* Copy argument string before extracting executable name */
+  char *args_string = malloc(strlen(file_name) + 1); // Room for NULL terminator
+  strlcpy(args_string, file_name, strlen(file_name) + 1);
+
+  /* Get file name (first token) */
+  char *save_ptr;
+  file_name = strtok_r(file_name, " ", &save_ptr);
 
   /* Open executable file. */
   file = filesys_open (file_name);
@@ -361,7 +333,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, args_string))
     goto done;
 
   /* Start address. */
@@ -486,21 +458,81 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *args_string) 
 {
   uint8_t *kpage;
-  bool success = false;
+  // Allocate page and ensure no errors occurred
+  if ((kpage = palloc_get_page(PAL_USER | PAL_ZERO)) == NULL) 
+  {
+    return false;
+  }
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE - 24;
-      else
-        palloc_free_page (kpage);
-    }
-  return success;
+  // If unable to add to user address space, we cannot set up the stack
+  if (!install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true))
+  {
+    palloc_free_page (kpage);
+    return false; 
+  }
+
+  // Initialize stack pointer and set up the stack
+  *esp = PHYS_BASE - 24;
+
+  // Proj2 implementation************************************
+  int argv_offsets[128];
+  int argc = 0;
+
+  int args_len = strlen(args_string) + 1;   // Include NULL terminator
+
+  char *token, *save_ptr;
+  for (token = strtok_r (args_string, " ", &save_ptr);
+        token != NULL;
+        token = strtok_r (NULL, " ", &save_ptr))
+  {
+    argv_offsets[argc++] = token - args_string;
+  }
+
+  void * top_of_stack = *esp;
+
+  // Decrement SP and copy args
+  *esp -= args_len;
+  memcpy(*esp, args_string, args_len);
+  char * start = *esp;
+
+  // Align SP to word boundary
+  *esp -= (unsigned int)*esp % 4;
+
+  // Decrement SP and insert NULL sentinel
+  *esp -= sizeof(int);
+  *(int *)*esp = 0;
+
+  // Push argv onto stack
+  for(int i = argc - 1; i >= 0; i--)
+  {
+    // Decrement SP and push argv elements
+    *esp -= sizeof(char *);
+    *(char **)*esp = start + argv_offsets[i];
+  }
+
+  // Push argv pointer onto stack
+  char ** argv = (char **)*esp;
+  *esp -= sizeof(char**);
+  *(char ***)*esp = argv;
+
+  // Push argc onto stack
+  *esp -= sizeof(int);
+  *(int *)*esp = argc;
+
+  // Push garbage return address onto stack
+  *esp -= sizeof(int);
+  *(int *)*esp = 0xDEADBEEF;
+
+  // DEBUG
+  //hex_dump((int)*esp, (void *)*esp, top_of_stack - *esp, 1);
+
+  return true;
+
+//*********************************************************
+
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

@@ -470,6 +470,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+
+  /* Project 2 Implementation */
+  t->donezo = false;
+  sema_init(&t->completion_sema, 0);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -599,4 +603,20 @@ bool thread_is_alive(int pid)
   }
 
   return false;
+}
+
+
+struct thread *thread_get(int pid)
+{
+  struct list_elem* elem;
+  for (elem = list_begin(&all_list); 
+       elem != list_end(&all_list);
+       elem = list_next(elem))
+  {
+    struct thread* t = list_entry(elem, struct thread, allelem);
+    if (t->tid == pid)
+      return t;
+  }
+
+  return NULL;
 }
