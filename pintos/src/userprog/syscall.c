@@ -174,7 +174,7 @@ static int sys_open(const char* file)
   lock_acquire(&file_lock);
   struct file* f = filesys_open(file);
 
-  if(f != NULL)
+  if(f == NULL)
   {
     lock_release(&file_lock);
     return -1;
