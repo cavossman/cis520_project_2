@@ -41,7 +41,7 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  int* args;
+  int args[3];
 
   if (!is_user_vaddr(f->esp))
 	  sys_exit(-1);
@@ -92,6 +92,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       //sys_read();
       break;
     case SYS_WRITE:
+      get_args(f, &args, 3);
       //sys_write();
       break;
     case SYS_SEEK:
@@ -196,12 +197,14 @@ static void sys_seek(int fd, unsigned position) {}
 static unsigned sys_tell(int fd) {}
 static void sys_close(int fd) {}
 
-void get_args(struct intr_frame *f, int** args, int numArgs)
+void get_args(struct intr_frame *f, int* args, int numArgs)
 {
+  int* ptr;
   for (int i = 0; i < numArgs; i++)
   {
-    *args[i] = f->esp + i + 1;
-    if (!is_user_vaddr(*args[i]))
+    ptr = (int*)f->esp + i + 1;
+    if (!is_user_vaddr(ptr))
 	    sys_exit(-1);
+    args[i] = *ptr;
   }
 }
