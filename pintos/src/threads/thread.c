@@ -481,6 +481,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_push_back (&all_list, &t->allelem);
 
   /* Project 2 Implementation */
+  list_init(&t->file_list);
+  t->fd = 2;
+  
   t->wait_cnt = 0;
   lock_init(&t->wait_lock);
   t->donezo = false;

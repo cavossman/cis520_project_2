@@ -32,9 +32,14 @@ static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
+bool valid_ptr(const void* ptr);
+int create_kernel_ptr(const void* ptr);
+
+
 void
 syscall_init (void) 
 {
+  lock_init(&file_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -43,8 +48,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   int args[3];
 
-  if (!is_user_vaddr(f->esp))
-	  sys_exit(-1);
+  if (!valid_ptr(f->esp))
+    sys_exit(-1);  
+  
 
   switch (* (int *) f->esp)
   {
@@ -72,16 +78,21 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     }
     case SYS_CREATE:
+    {
       get_args(f, args, 2);
-      f->eax = sys_create(args[0], args[1]);
+      args[0] = create_kernel_ptr(args[0]);
+      f->eax = sys_create((const char *)args[0], (unsigned) args[1]);
       break;
+    }
     case SYS_REMOVE:
       get_args(f, args, 1);
-      f->eax = sys_remove(args[0]);
+      args[0] = create_kernel_ptr((const void *) args[0]);
+      f->eax = sys_remove((const char *) args[0]);
       break;
     case SYS_OPEN:
-      get_args(f, args, 1);
-      f->eax = sys_open(args[0]);
+      get_args(f, &args[0], 1);
+      args[0] = create_kernel_ptr((const void *) args[0]);
+      f->eax = sys_open((const char *) args[0]);
       break;
     case SYS_FILESIZE:
       get_args(f, args, 1);
@@ -94,7 +105,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       get_args(f, args, 3);
       //sys_write();
       printf("%s", args[1]);
-	  break;
+      break;
     case SYS_SEEK:
       //sys_seek();
       break;
@@ -162,6 +173,7 @@ static bool sys_create(const char* file, unsigned initial_size)
   lock_release(&file_lock);
   return success;
 }
+
 static bool sys_remove(const char* file) 
 {
   lock_acquire(&file_lock);
@@ -169,6 +181,7 @@ static bool sys_remove(const char* file)
   lock_release(&file_lock);
   return success;
 }
+
 static int sys_open(const char* file) 
 {
   lock_acquire(&file_lock);
@@ -227,4 +240,30 @@ void get_args(struct intr_frame *f, int* args, int n)
       // Copy arg from stack to caller's buffer
       args[i] = stack_args[i];
     }
+}
+
+bool valid_ptr(const void* ptr)
+{
+  if (!is_user_vaddr(ptr) || ptr < 0x08048000)
+  {
+    printf("<NOT USER VADDR\n>");
+    return false;
+  }
+
+  return true;
+}
+
+
+int create_kernel_ptr(const void* ptr)
+{
+  // TO DO: Need to check if all bytes within range are correct
+  // for strings + buffers
+  if (!valid_ptr(ptr))
+    sys_exit(-1);
+  void *temp = pagedir_get_page(thread_current()->pagedir, ptr);
+  if (!temp)
+    {
+      sys_exit(-1);
+    }
+  return (int) temp;
 }
