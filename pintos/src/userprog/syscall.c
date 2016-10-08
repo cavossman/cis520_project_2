@@ -57,42 +57,43 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     case SYS_EXIT:
     {
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       sys_exit(args[0]);
       break;
     }
     case SYS_EXEC:
     {
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       f->eax = sys_exec(args[0]);
       break;
     }
     case SYS_WAIT:
     {
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       f->eax = sys_wait(args[0]);
       break;
     }
     case SYS_CREATE:
-      get_args(f, &args, 2);
+      get_args(f, args, 2);
       f->eax = sys_create(args[0], args[1]);
       break;
     case SYS_REMOVE:
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       f->eax = sys_remove(args[0]);
       break;
     case SYS_OPEN:
-      get_args(f, &args, 1);
+      get_args(f, args, 1);
       f->eax = sys_open(args[0]);
       break;
     case SYS_FILESIZE:
-      //sys_filesize();
+      get_args(f, args);
+      f->eax = sys_filesize(args[0]);
       break;
     case SYS_READ:
       //sys_read();
       break;
     case SYS_WRITE:
-      get_args(f, &args, 3);
+      get_args(f, args, 3);
       //sys_write();
       break;
     case SYS_SEEK:
@@ -106,6 +107,30 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
   }  
 }
+
+static file* get_file(int file_descriptor)
+{
+  /* Get current thread                                     */
+  struct thread* cur = thread_current();
+  struct list_elem* cur_elem;
+
+  /* Iterate over file list of the current thread           */
+  for(e = list_begin(&cur->file_list);
+      cur_elem != list_end(&cur->file_list);
+      e = list_next(cur_elem))
+  {
+    /* Get the process file which holds the current element */
+    struct process_file *pf = list_entry(cur_elem, struct process_file, elem);
+    if(pf != NULL && file_descriptor == pf->file_descriptor)
+      {
+        /* Return the file pointer if descriptors match     */
+        return pf->file;  
+      }
+  }
+  /* Return NULL if the file does not exist                 */  
+  return NULL;
+}
+
 
 static void sys_halt()
 {
@@ -190,7 +215,25 @@ static int sys_open(const char* file)
   lock_release(&file_lock);
   return pf->file_descriptor;
 }
-static int sys_filesize(int fd) {}
+
+
+static int sys_filesize(int fd) {
+  int file_size;
+
+  lock_acquire(&file_lock);       /* Acquire file lock                */
+  struct file* f = get_file(fd);  /* Get file to be sized             */
+  if(f == NULL)
+  {
+    lock_release(&file_lock);     /* If file does not exist, release  */
+    return -1;                       /* lock and return error         */
+  }
+
+  file_size = file_length(f);     /* Get file size                    */
+  lock_release(&file_lock);       /* Release lock                     */
+  return file_size;               /* Return file size                 */
+}
+
+
 static int sys_read(int fd, void* buffer, unsigned size) {}
 static int sys_write(int fd, const void* buffer, unsigned size) {}
 static void sys_seek(int fd, unsigned position) {}
