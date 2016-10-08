@@ -244,10 +244,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
-  // Get file name (first token)
+  /* Copy argument string before extracting executable name */
+  char *args_string = malloc(strlen(file_name) + 1); // Room for NULL terminator
+  strlcpy(args_string, file_name, strlen(file_name) + 1);
+
+  /* Get file name (first token) */
   char *save_ptr;
-  char *args_string = malloc(strlen(file_name));
-  memcpy(args_string, file_name, strlen(file_name));
   file_name = strtok_r(file_name, " ", &save_ptr);
 
   /* Open executable file. */
@@ -479,7 +481,7 @@ setup_stack (void **esp, char *args_string)
   int argv_offsets[128];
   int argc = 0;
 
-  int fn_len = strlen(args_string) + 1; // Include NULL terminator
+  int args_len = strlen(args_string) + 1;   // Include NULL terminator
 
   char *token, *save_ptr;
   for (token = strtok_r (args_string, " ", &save_ptr);
@@ -492,8 +494,8 @@ setup_stack (void **esp, char *args_string)
   void * top_of_stack = *esp;
 
   // Decrement SP and copy args
-  *esp -= fn_len;
-  memcpy(*esp, args_string, fn_len);
+  *esp -= args_len;
+  memcpy(*esp, args_string, args_len);
   char * start = *esp;
 
   // Align SP to word boundary
