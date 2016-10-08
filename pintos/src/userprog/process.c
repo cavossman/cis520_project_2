@@ -105,6 +105,8 @@ process_wait (tid_t child_tid)
   {
     sema_down(&wait_thd->completion_sema);
   }
+
+  return(wait_thd->exit_status);
 }
 
 /* Free the current process's resources. */

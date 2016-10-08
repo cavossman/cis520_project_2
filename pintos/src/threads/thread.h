@@ -105,6 +105,7 @@ struct thread
     /* Project 2 Implementation */
     bool donezo;                        /* This process? It's DONESZO         */
     struct semaphore completion_sema;   /* Only upped once process is donezo  */
+    int exit_status;                    /* Invalid until donezo == true       */
   };
 
 /* If false (default), use round-robin scheduler.

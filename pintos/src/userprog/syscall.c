@@ -106,6 +106,7 @@ static void sys_halt()
 
 static void sys_exit(int status)
 {
+  thread_current()->exit_status = status;
   thread_exit();
 }
 

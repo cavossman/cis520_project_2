@@ -474,6 +474,7 @@ init_thread (struct thread *t, const char *name, int priority)
   /* Project 2 Implementation */
   t->donezo = false;
   sema_init(&t->completion_sema, 0);
+  t->exit_status = -1;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
