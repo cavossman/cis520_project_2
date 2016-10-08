@@ -120,11 +120,15 @@ syscall_handler (struct intr_frame *f UNUSED)
       //sys_seek();
       break;
     case SYS_TELL:
-      //sys_tell();
+      get_args(f, args, 1);
+      f->eax = sys_tell(args[0]);
       break;
     case SYS_CLOSE:
-      //sys_close();
+    {
+      get_args(f, args, 1);
+      sys_close(args[0]);
       break;
+    }
   }
 }
 
@@ -254,7 +258,35 @@ static unsigned sys_tell(int fd)
 }
 
 
-static void sys_close(int fd) {}
+static void sys_close(int fd) 
+{
+  if (file_lock.holder != NULL || fd <= STDOUT_FILENO || fd >= 0x20101234)
+    sys_exit(-1);
+
+  lock_acquire(&file_lock);
+
+  struct thread *cur = thread_current();
+  struct list_elem *next, *e = list_begin(&cur->file_list);
+
+  while (e != list_end (&cur->file_list))
+  {
+    next = list_next(e);
+    struct process_file *pf = list_entry (e, struct process_file, elem);
+    if (fd == pf->file_descriptor || fd == -1)
+      {
+        file_close(pf->file);
+        list_remove(&pf->elem);
+        free(pf);
+        if (fd != -1)
+        {
+          return;
+        }
+      }
+      e = next;
+  }
+
+  lock_release(&file_lock);
+}
 
 static void get_args(struct intr_frame *f, int* args, int n)
 {
