@@ -489,6 +489,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->donezo = false;
   sema_init(&t->completion_sema, 0);
   t->exit_status = EXIT_SUCCESS;
+  sema_init(&t->load_sema, 0);
+  t->load_success = false;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -657,6 +659,25 @@ static struct thread *thread_get(int pid)
 
   return NULL;
 }
+
+
+bool thread_wait_for_load(int tid)
+{
+  struct thread * wait_thd = thread_get(tid);
+  ASSERT(wait_thd != NULL);
+
+  // Wait for thread to load
+  sema_down(&wait_thd->load_sema);
+
+  if(!wait_thd->load_success)
+  {
+    wait_thd->exit_status = -1;
+  }
+
+  // Return successful load
+  return wait_thd->load_success;
+}
+
 
 int thread_wait_for_completion(int tid)
 {

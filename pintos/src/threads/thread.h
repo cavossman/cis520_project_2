@@ -111,9 +111,10 @@ struct thread
     bool donezo;                        /* This process? It's DONESZO         */
     struct semaphore completion_sema;   /* Only upped once process is donezo  */
     int exit_status;                    /* Invalid until donezo == true       */
-
-    int fd;
-    struct list file_list;
+    int fd;                             /* File descriptor                    */
+    struct list file_list;              /* Files in use by this thread v      */
+    struct semaphore load_sema;         /* Only upped once process has loaded */
+    bool load_success;                  /* Thread finished loading            */
   };
 
 /* If false (default), use round-robin scheduler.
@@ -155,6 +156,7 @@ int thread_get_load_avg (void);
 bool thread_is_alive(int pid);
 
 /* Project 2 Implementation */
+bool thread_wait_for_load(int tid);
 int thread_wait_for_completion(int tid);
 
 #endif /* threads/thread.h */

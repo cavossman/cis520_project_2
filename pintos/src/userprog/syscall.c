@@ -79,6 +79,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_EXEC:
     {
       get_args(f, args, 1);
+      args[0] = create_kernel_ptr((const void *)args[0]);
       f->eax = sys_exec((const char *)args[0]);
       break;
     }
@@ -170,7 +171,9 @@ static void sys_halt()
 
 static void sys_exit(int status)
 {
-  thread_current()->exit_status = status;
+  struct thread * cur = thread_current();
+  cur->exit_status = status;
+  printf("%s: exit(%d)\n", cur->name, cur->exit_status);
   thread_exit();
 }
 
@@ -179,7 +182,8 @@ static pid_t sys_exec(const char* cmd_line)
   //Implementation incomplete
   pid_t pid = process_execute(cmd_line);
 
-  return pid;
+  // Return PID appropriately
+  return thread_wait_for_load(pid) ? pid : -1;
 }
 
 static int sys_wait(pid_t pid) 
