@@ -103,6 +103,11 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
  
     /* Project 2 Implementation */
+    // NOTE: 'allelem' is used in our implementation in the limbo_list.
+    // We can use this list_elem in both all_list and limbo_list b/c
+    // these two lists are mutually exclussive
+    int wait_cnt;                       /* Number of threads waiting on our completion */
+    struct lock wait_lock;              /* wait_cnt needs to be atomic        */
     bool donezo;                        /* This process? It's DONESZO         */
     struct semaphore completion_sema;   /* Only upped once process is donezo  */
     int exit_status;                    /* Invalid until donezo == true       */
@@ -147,6 +152,6 @@ int thread_get_load_avg (void);
 bool thread_is_alive(int pid);
 
 /* Project 2 Implementation */
-struct thread *thread_get(int pid);
+int thread_wait_for_completion(int tid);
 
 #endif /* threads/thread.h */

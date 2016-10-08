@@ -28,6 +28,9 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* Project 2 Implementation */
+static struct list limbo_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -71,6 +74,11 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* Project 2 Functions */
+static struct thread *thread_get(int pid);
+static int thread_get_wait_cnt(struct thread * thd);
+static void thread_free_resources(struct thread * thd);
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -92,6 +100,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&limbo_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -472,6 +481,8 @@ init_thread (struct thread *t, const char *name, int priority)
   list_push_back (&all_list, &t->allelem);
 
   /* Project 2 Implementation */
+  t->wait_cnt = 0;
+  lock_init(&t->wait_lock);
   t->donezo = false;
   sema_init(&t->completion_sema, 0);
   t->exit_status = -1;
@@ -545,9 +556,32 @@ thread_schedule_tail (struct thread *prev)
      palloc().) */
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
-      ASSERT (prev != cur);
-      palloc_free_page (prev);
+      // Free resources now if no one is waiting on us
+      if(thread_get_wait_cnt(prev) == 0)
+      {
+        thread_free_resources(prev);
+      }
+      // Put thread in limbo to free resources at a later time
+      else
+      {
+        list_push_back(&limbo_list, &prev->allelem);
+      }
     }
+
+  // Free resources for any threads in limbo that are no longer
+  // being waited on
+  struct list_elem *next, *e = list_begin(&limbo_list);
+  while(e != list_end(&limbo_list))
+  {
+    next = list_next(e);
+    struct thread* t = list_entry(e, struct thread, allelem);
+    if(thread_get_wait_cnt(t) == 0)
+    {
+      list_remove(&t->allelem);
+      thread_free_resources(t);
+    }
+    e = next;
+  }
 }
 
 /* Schedules a new process.  At entry, interrupts must be off and
@@ -606,8 +640,7 @@ bool thread_is_alive(int pid)
   return false;
 }
 
-
-struct thread *thread_get(int pid)
+static struct thread *thread_get(int pid)
 {
   struct list_elem* elem;
   for (elem = list_begin(&all_list); 
@@ -620,4 +653,58 @@ struct thread *thread_get(int pid)
   }
 
   return NULL;
+}
+
+int thread_wait_for_completion(int tid)
+{
+  struct thread * wait_thd = thread_get(tid);
+  ASSERT(wait_thd != NULL);
+
+  int ret_status;
+
+  // Wait for that thread to complete if it's not already donezo
+  if(!wait_thd->donezo)
+  {
+    // Atomically increment waiter count
+    lock_acquire(&wait_thd->wait_lock);
+    wait_thd->wait_cnt++;
+    lock_release(&wait_thd->wait_lock);
+
+    // Down sema to go to sleep
+    sema_down(&wait_thd->completion_sema);
+
+    // Atomically decrement waiter count
+    lock_acquire(&wait_thd->wait_lock);
+    wait_thd->wait_cnt--;
+
+    // Grab return status now in case the thread's resources
+    // are freed before we access it later
+    ret_status = wait_thd->exit_status;
+    lock_release(&wait_thd->wait_lock);
+  }
+  else
+  {
+    ret_status = wait_thd->exit_status;
+  }
+
+  return(ret_status);
+}
+
+static int thread_get_wait_cnt(struct thread * thd)
+{
+  ASSERT(thd != NULL);
+  int cnt;
+
+  lock_acquire(&thd->wait_lock);
+  cnt = thd->wait_cnt;
+  lock_release(&thd->wait_lock);
+
+  return(cnt);
+}
+
+static void thread_free_resources(struct thread * thd)
+{
+  ASSERT(thd != NULL);
+  ASSERT(thd != running_thread());
+  palloc_free_page(thd);
 }

@@ -93,20 +93,9 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid) 
+process_wait (tid_t tid) 
 {
-  struct thread * wait_thd = thread_get(child_tid);
-
-  // Ensure thread exists
-  if(wait_thd == NULL) return(-1);
-
-  // Wait for that thread to complete if it's not already donezo
-  if(!wait_thd->donezo)
-  {
-    sema_down(&wait_thd->completion_sema);
-  }
-
-  return(wait_thd->exit_status);
+  return thread_wait_for_completion(tid);
 }
 
 /* Free the current process's resources. */
@@ -493,7 +482,7 @@ setup_stack (void **esp, char *args_string)
     argv_offsets[argc++] = token - args_string;
   }
 
-  void * top_of_stack = *esp;
+  // DEBUG: void * top_of_stack = *esp;
 
   // Decrement SP and copy args
   *esp -= args_len;
@@ -528,8 +517,7 @@ setup_stack (void **esp, char *args_string)
   *esp -= sizeof(int);
   *(int *)*esp = 0xDEADBEEF;
 
-  // DEBUG
-  //hex_dump((int)*esp, (void *)*esp, top_of_stack - *esp, 1);
+  // DEBUG: hex_dump((int)*esp, (void *)*esp, top_of_stack - *esp, 1);
 
   return true;
 
