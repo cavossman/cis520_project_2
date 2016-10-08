@@ -1,4 +1,3 @@
-#include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -10,7 +9,9 @@
 #include "threads/palloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "lib/user/syscall.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -482,13 +483,12 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* Project 2 Implementation */
   list_init(&t->file_list);
-  t->fd = 2;
-  
+  t->fd = STDOUT_FILENO + 1;  // 0 and 1 are reserved for stdin and stdout
   t->wait_cnt = 0;
   lock_init(&t->wait_lock);
   t->donezo = false;
   sema_init(&t->completion_sema, 0);
-  t->exit_status = -1;
+  t->exit_status = EXIT_SUCCESS;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

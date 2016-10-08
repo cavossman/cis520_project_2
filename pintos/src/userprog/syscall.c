@@ -1,12 +1,19 @@
-#include "filesys/file.h"
-#include "filesys/off_t.h"
-#include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include "process.h"
+#include "devices/shutdown.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "filesys/off_t.h"
+#include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/init.h"
+#include "userprog/pagedir.h"
+#include "userprog/syscall.h"
+
+#define EXECUTABLE_START (void *)0x08048000
 
 struct lock file_lock;
 struct process_file
@@ -37,6 +44,7 @@ static void sys_close(int fd);
 bool valid_ptr(const void* ptr);
 int create_kernel_ptr(const void* ptr);
 
+static void get_args(struct intr_frame *f, int* args, int n);
 
 void
 syscall_init (void) 
@@ -70,7 +78,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_EXEC:
     {
       get_args(f, args, 1);
-      f->eax = sys_exec(args[0]);
+      f->eax = sys_exec((const char *)args[0]);
       break;
     }
     case SYS_WAIT:
@@ -82,19 +90,19 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CREATE:
     {
       get_args(f, args, 2);
-      args[0] = create_kernel_ptr(args[0]);
+      args[0] = create_kernel_ptr((const void *)args[0]);
       f->eax = sys_create((const char *)args[0], (unsigned) args[1]);
       break;
     }
     case SYS_REMOVE:
       get_args(f, args, 1);
-      args[0] = create_kernel_ptr((const void *) args[0]);
+      args[0] = create_kernel_ptr((const void *)args[0]);
       f->eax = sys_remove((const char *) args[0]);
       break;
     case SYS_OPEN:
       get_args(f, &args[0], 1);
-      args[0] = create_kernel_ptr((const void *) args[0]);
-      f->eax = sys_open((const char *) args[0]);
+      args[0] = create_kernel_ptr((const void *)args[0]);
+      f->eax = sys_open((const char *)args[0]);
       break;
     case SYS_FILESIZE:
       get_args(f, args, 1);
@@ -106,7 +114,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_WRITE:
       get_args(f, args, 3);
       //sys_write();
-      printf("%s", args[1]);
+      printf("%s", (char *)args[1]);
       break;
     case SYS_SEEK:
       //sys_seek();
@@ -215,7 +223,7 @@ static int sys_filesize(int fd)
   if(f == NULL)
   {
     lock_release(&file_lock);     /* If file does not exist, release  */
-    return -1;                        /* lock and return error        */
+    return(-1);                   /* lock and return error            */
   }
 
   file_size = file_length(f);     /* Get file size                    */
@@ -248,7 +256,7 @@ static unsigned sys_tell(int fd)
 
 static void sys_close(int fd) {}
 
-void get_args(struct intr_frame *f, int* args, int n)
+static void get_args(struct intr_frame *f, int* args, int n)
 {
   // Stack pointer is pointing at the syscall number (int), args start just past that
   int * stack_args = f->esp + sizeof(int);
@@ -265,7 +273,7 @@ void get_args(struct intr_frame *f, int* args, int n)
 
 bool valid_ptr(const void* ptr)
 {
-  if (!is_user_vaddr(ptr) || ptr < 0x08048000)
+  if (!is_user_vaddr(ptr) || ptr < EXECUTABLE_START )
   {
     printf("<NOT USER VADDR\n>");
     return false;
