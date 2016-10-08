@@ -15,10 +15,11 @@
 
 #define EXECUTABLE_START (void *)0x08048000
 
-struct lock file_lock;
+struct lock file_sys_lock;
 struct process_file
 {
   struct file* file;
+  struct lock file_lock;
   int file_descriptor;
   struct list_elem elem;
 };
@@ -49,7 +50,7 @@ static void get_args(struct intr_frame *f, int* args, int n);
 void
 syscall_init (void) 
 {
-  lock_init(&file_lock);
+  lock_init(&file_sys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -117,7 +118,8 @@ syscall_handler (struct intr_frame *f UNUSED)
       printf("%s", (char *)args[1]);
       break;
     case SYS_SEEK:
-      //sys_seek();
+      get_args(f, args, 2);
+      sys_seek(args[0], args[1]);    
       break;
     case SYS_TELL:
       get_args(f, args, 1);
@@ -132,8 +134,11 @@ syscall_handler (struct intr_frame *f UNUSED)
   }
 }
 
-static struct file* get_file(int file_descriptor)
+static struct process_file* get_process_file(int file_descriptor)
 {
+  /* Acquire file system lock                               */
+  lock_acquire(&file_sys_lock);
+
   /* Get current thread                                     */
   struct thread* cur = thread_current();
   struct list_elem* cur_elem;
@@ -148,10 +153,12 @@ static struct file* get_file(int file_descriptor)
     if(pf != NULL && file_descriptor == pf->file_descriptor)
       {
         /* Return the file pointer if descriptors match     */
-        return pf->file;  
+        lock_release(&file_sys_lock);
+        return pf;  
       }
   }
   /* Return NULL if the file does not exist                 */  
+  lock_release(&file_sys_lock);
   return NULL;
 }
 
@@ -182,38 +189,41 @@ static int sys_wait(pid_t pid)
 
 static bool sys_create(const char* file, unsigned initial_size) 
 {
-  lock_acquire(&file_lock);
+  lock_acquire(&file_sys_lock);
   bool success = filesys_create(file, initial_size);
-  lock_release(&file_lock);
+  lock_release(&file_sys_lock);
   return success;
 }
 
 static bool sys_remove(const char* file) 
 {
-  lock_acquire(&file_lock);
+  lock_acquire(&file_sys_lock);
   bool success = filesys_remove(file);
-  lock_release(&file_lock);
+  lock_release(&file_sys_lock);
   return success;
 }
 
 static int sys_open(const char* file) 
 {
-  lock_acquire(&file_lock);
-  struct file* f = filesys_open(file);
+  lock_acquire(&file_sys_lock);
 
+  struct file* f;
+  struct thread* cur = thread_current();
+  struct process_file* pf;
+
+  f = filesys_open(file);
   if(f == NULL)
   {
-    lock_release(&file_lock);
+    lock_release(&file_sys_lock);
     return -1;
   }
 
-  struct thread* cur = thread_current();
-  struct process_file* pf = malloc(sizeof(struct process_file));
+  pf = malloc(sizeof(struct process_file));
   pf->file = f;
   pf->file_descriptor = cur->fd++;
   list_push_back(&cur->file_list, &pf->elem);
 
-  lock_release(&file_lock);
+  lock_release(&file_sys_lock);
   return pf->file_descriptor;
 }
 
@@ -222,48 +232,64 @@ static int sys_filesize(int fd)
 {
   int file_size;
 
-  lock_acquire(&file_lock);       /* Acquire file lock                */
-  struct file* f = get_file(fd);  /* Get file to be sized             */
-  if(f == NULL)
+  struct process_file* pf = get_process_file(fd);
+  lock_acquire(&(pf->file_lock));
+  if(pf->file == NULL)
   {
-    lock_release(&file_lock);     /* If file does not exist, release  */
-    return(-1);                   /* lock and return error            */
+    lock_release(&(pf->file_lock));
+    return -1;
   }
 
-  file_size = file_length(f);     /* Get file size                    */
-  lock_release(&file_lock);       /* Release lock                     */
-  return file_size;               /* Return file size                 */
+  file_size = file_length(pf->file);
+  lock_release(&(pf->file_lock));
+  return file_size;
 }
 
 
 static int sys_read(int fd, void* buffer, unsigned size) {}
 static int sys_write(int fd, const void* buffer, unsigned size) {}
-static void sys_seek(int fd, unsigned position) {}
+
+
+static void sys_seek(int fd, unsigned position)
+{
+  struct process_file* pf = get_process_file(fd);
+  lock_acquire(&(pf->file_lock));
+  if(pf->file == NULL)
+  {
+    lock_release(&(pf->file_lock));
+    return;
+  }
+
+  file_seek(pf->file, position);
+  lock_release(&(pf->file_lock));
+}
+
 
 static unsigned sys_tell(int fd)
 {
   off_t pos;
 
-  lock_acquire(&file_lock);       /* Acquire file lock                */
-  struct file* f = get_file(fd);  /* Get file to be sized             */
-  if(f == NULL)
+  struct process_file* pf = get_process_file(fd);
+  lock_acquire(&(pf->file_lock));
+
+  if(pf->file == NULL)
   {
-    lock_release(&file_lock);     /* If file does not exist, release  */
-    return -1;                        /* lock and return error        */
+    lock_release(&(pf->file_lock));
+    return -1;
   }
 
-  pos = file_tell(f);             /* Get position of next byte        */
-  lock_release(&file_lock);       /* Release lock                     */
-  return pos;                     /* Return position of next byte     */
+  pos = file_tell(pf->file);
+  lock_release(&(pf->file_lock));
+  return pos;
 }
 
 
 static void sys_close(int fd) 
 {
-  if (file_lock.holder != NULL || fd <= STDOUT_FILENO || fd >= 0x20101234)
+  if (file_sys_lock.holder != NULL || fd <= STDOUT_FILENO || fd >= 0x20101234)
     sys_exit(-1);
 
-  lock_acquire(&file_lock);
+  lock_acquire(&file_sys_lock);
 
   struct thread *cur = thread_current();
   struct list_elem *next, *e = list_begin(&cur->file_list);
@@ -285,7 +311,7 @@ static void sys_close(int fd)
       e = next;
   }
 
-  lock_release(&file_lock);
+  lock_release(&file_sys_lock);
 }
 
 static void get_args(struct intr_frame *f, int* args, int n)
