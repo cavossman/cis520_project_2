@@ -59,11 +59,9 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   int args[3];
 
-  if (!valid_ptr(f->esp))
-    sys_exit(-1);  
-  
+  void * esp = create_kernel_ptr(f->esp);  
 
-  switch (* (int *) f->esp)
+  switch (*(int *)esp)
   {
     case SYS_HALT:
     {
@@ -335,13 +333,7 @@ static void get_args(struct intr_frame *f, int* args, int n)
 
 bool valid_ptr(const void* ptr)
 {
-  if (!is_user_vaddr(ptr) || ptr < EXECUTABLE_START )
-  {
-    printf("<NOT USER VADDR\n>");
-    return false;
-  }
-
-  return true;
+  return(!(!is_user_vaddr(ptr) || ptr < EXECUTABLE_START ));
 }
 
 

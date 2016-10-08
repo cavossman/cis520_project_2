@@ -682,7 +682,10 @@ bool thread_wait_for_load(int tid)
 int thread_wait_for_completion(int tid)
 {
   struct thread * wait_thd = thread_get(tid);
-  ASSERT(wait_thd != NULL);
+  if(wait_thd == NULL)
+  {
+    return(-1);
+  }
 
   int ret_status;
 
