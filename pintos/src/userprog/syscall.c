@@ -1,3 +1,5 @@
+#include "filesys/file.h"
+#include "filesys/off_t.h"
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -115,7 +117,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CLOSE:
       //sys_close();
       break;
-  }  
+  }
 }
 
 static struct file* get_file(int file_descriptor)
@@ -204,7 +206,8 @@ static int sys_open(const char* file)
 }
 
 
-static int sys_filesize(int fd) {
+static int sys_filesize(int fd)
+{
   int file_size;
 
   lock_acquire(&file_lock);       /* Acquire file lock                */
@@ -212,7 +215,7 @@ static int sys_filesize(int fd) {
   if(f == NULL)
   {
     lock_release(&file_lock);     /* If file does not exist, release  */
-    return -1;                       /* lock and return error         */
+    return -1;                        /* lock and return error        */
   }
 
   file_size = file_length(f);     /* Get file size                    */
@@ -224,7 +227,25 @@ static int sys_filesize(int fd) {
 static int sys_read(int fd, void* buffer, unsigned size) {}
 static int sys_write(int fd, const void* buffer, unsigned size) {}
 static void sys_seek(int fd, unsigned position) {}
-static unsigned sys_tell(int fd) {}
+
+static unsigned sys_tell(int fd)
+{
+  off_t pos;
+
+  lock_acquire(&file_lock);       /* Acquire file lock                */
+  struct file* f = get_file(fd);  /* Get file to be sized             */
+  if(f == NULL)
+  {
+    lock_release(&file_lock);     /* If file does not exist, release  */
+    return -1;                        /* lock and return error        */
+  }
+
+  pos = file_tell(f);             /* Get position of next byte        */
+  lock_release(&file_lock);       /* Release lock                     */
+  return pos;                     /* Return position of next byte     */
+}
+
+
 static void sys_close(int fd) {}
 
 void get_args(struct intr_frame *f, int* args, int n)
