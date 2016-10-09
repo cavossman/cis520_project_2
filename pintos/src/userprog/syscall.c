@@ -65,44 +65,30 @@ syscall_handler (struct intr_frame *f UNUSED)
   switch (*(int *)esp)
   {
     case SYS_HALT:
-    {
       sys_halt();
       break;
-    }
     case SYS_EXIT:
-    {
       get_args(f, args, 1);
       sys_exit(args[0]);
       break;
-    }
     case SYS_EXEC:
-    {
       get_args(f, args, 1);
-      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_exec((const char *)args[0]);
       break;
-    }
     case SYS_WAIT:
-    {
       get_args(f, args, 1);
       f->eax = sys_wait(args[0]);
       break;
-    }
     case SYS_CREATE:
-    {
       get_args(f, args, 2);
-      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_create((const char *)args[0], (unsigned) args[1]);
       break;
-    }
     case SYS_REMOVE:
       get_args(f, args, 1);
-      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_remove((const char *) args[0]);
       break;
     case SYS_OPEN:
       get_args(f, &args[0], 1);
-      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_open((const char *)args[0]);
       break;
     case SYS_FILESIZE:
@@ -126,11 +112,11 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_tell(args[0]);
       break;
     case SYS_CLOSE:
-    {
       get_args(f, args, 1);
       sys_close(args[0]);
       break;
-    }
+    default:
+      sys_exit(-1);
   }
 }
 
@@ -178,6 +164,9 @@ static void sys_exit(int status)
 
 static pid_t sys_exec(const char* cmd_line) 
 {
+  // Translate ptr
+  cmd_line = create_kernel_ptr(cmd_line);
+
   //Implementation incomplete
   pid_t pid = process_execute(cmd_line);
 
@@ -192,6 +181,9 @@ static int sys_wait(pid_t pid)
 
 static bool sys_create(const char* file, unsigned initial_size) 
 {
+  // Translate ptr
+  file = create_kernel_ptr((const void *)file);
+
   lock_acquire(&file_sys_lock);
   bool success = filesys_create(file, initial_size);
   lock_release(&file_sys_lock);
@@ -200,6 +192,9 @@ static bool sys_create(const char* file, unsigned initial_size)
 
 static bool sys_remove(const char* file) 
 {
+  // Translate ptr
+  file = create_kernel_ptr((const void *)file);
+
   lock_acquire(&file_sys_lock);
   bool success = filesys_remove(file);
   lock_release(&file_sys_lock);
@@ -208,6 +203,9 @@ static bool sys_remove(const char* file)
 
 static int sys_open(const char* file) 
 {
+  // Translate ptr
+  file = create_kernel_ptr((const void *)file);
+
   lock_acquire(&file_sys_lock);
 
   struct file* f;

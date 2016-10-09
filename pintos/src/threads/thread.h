@@ -115,6 +115,7 @@ struct thread
     struct list file_list;              /* Files in use by this thread v      */
     struct semaphore load_sema;         /* Only upped once process has loaded */
     bool load_success;                  /* Thread finished loading            */
+    struct file * exe;                  /* Executable file                    */
   };
 
 /* If false (default), use round-robin scheduler.

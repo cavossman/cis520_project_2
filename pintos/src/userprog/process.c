@@ -126,6 +126,9 @@ process_exit (void)
       pagedir_destroy (pd);
     }
 
+  if(cur->exe)
+    file_close(cur->exe);
+
   // Wake up all processes waiting on our completion
   cur->donezo = true;
   while(!list_empty(&cur->completion_sema.waiters))
@@ -268,6 +271,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done; 
     }
 
+  // Deny write to executable
+  file_deny_write(file);
+  t->exe = file;
+
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
   for (i = 0; i < ehdr.e_phnum; i++) 
@@ -338,7 +345,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
