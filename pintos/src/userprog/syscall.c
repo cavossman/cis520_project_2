@@ -43,10 +43,10 @@ static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
-bool valid_ptr(const void* ptr);
-void * create_kernel_ptr(const void* ptr);
 
+static void * create_kernel_ptr(const void* ptr);
 static void get_args(struct intr_frame *f, int* args, int n);
+static bool is_valid_ptr(const void* ptr);
 
 void
 syscall_init (void) 
@@ -59,10 +59,9 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   int args[3];
+  int syscall_no = *(int *)create_kernel_ptr(f->esp);  
 
-  void * esp = create_kernel_ptr(f->esp);  
-
-  switch (*(int *)esp)
+  switch (syscall_no)
   {
     case SYS_HALT:
       sys_halt();
@@ -120,6 +119,42 @@ syscall_handler (struct intr_frame *f UNUSED)
   }
 }
 
+/* Retrieve args from stack */
+static void get_args(struct intr_frame *f, int* args, int n)
+{
+  // Stack pointer is pointing at the syscall number (int), args start just past that
+  int * stack_args = f->esp + sizeof(int);
+
+  for (int i = 0; i < n; i++)
+    {
+      if (!is_user_vaddr((const void *)stack_args))
+	      sys_exit(-1);
+
+      // Copy arg from stack to buffer
+      args[i] = stack_args[i];
+    }
+}
+
+/* Is the ptr valid? */
+static bool is_valid_ptr(const void* ptr)
+{
+  return(is_user_vaddr(ptr) && (ptr >= EXECUTABLE_START));
+}
+
+/* Translate user vaddr to kernal vaddr */
+static void * create_kernel_ptr(const void* ptr)
+{
+  // Return variable
+  void * kptr;
+
+  // Exit immediately if user is accessing protected memory
+  if (!is_valid_ptr(ptr) || ((kptr = pagedir_get_page(thread_current()->pagedir, ptr)) == NULL))
+    sys_exit(-1);
+
+  return kptr;
+}
+
+/* get the process file with the given file descriptor */
 static struct process_file* get_process_file(int file_descriptor)
 {
   /* Acquire file system lock                               */
@@ -148,70 +183,98 @@ static struct process_file* get_process_file(int file_descriptor)
   return NULL;
 }
 
+/*************************************************************
+* SYSTEM CALL IMPLEMENTATIONS
+*************************************************************/
 
+/* Shutdown system */
 static void sys_halt()
 {
   shutdown_power_off();
 }
 
+/* Exit this process */
 static void sys_exit(int status)
 {
+  // Save exit status
   struct thread * cur = thread_current();
   cur->exit_status = status;
+
+  // Print exit status to console
   printf("%s: exit(%d)\n", cur->name, cur->exit_status);
+
+  // Exit the thread
   thread_exit();
 }
 
+/* Execute a command */
 static pid_t sys_exec(const char* cmd_line) 
 {
   // Translate ptr
   cmd_line = create_kernel_ptr(cmd_line);
 
-  //Implementation incomplete
+  // Execute the command
   pid_t pid = process_execute(cmd_line);
 
-  // Return PID appropriately
+  // Return PID appropriately after giving child time to load
   return thread_wait_for_load(pid) ? pid : -1;
 }
 
+/* Wait on a pid to exit*/
 static int sys_wait(pid_t pid) 
 {
   return process_wait(pid);
 }
 
+/* Create a new file */
 static bool sys_create(const char* file, unsigned initial_size) 
 {
+  // Return variable
+  bool success = false;
+
   // Translate ptr
   file = create_kernel_ptr((const void *)file);
 
+  // Create the file
   lock_acquire(&file_sys_lock);
-  bool success = filesys_create(file, initial_size);
+  success = filesys_create(file, initial_size);
   lock_release(&file_sys_lock);
+
+  // Return success
   return success;
 }
 
+/* Remove the file from the file system */
 static bool sys_remove(const char* file) 
 {
+  // Return variable
+  bool success = false;
+
   // Translate ptr
   file = create_kernel_ptr((const void *)file);
 
+  // Remove the file
   lock_acquire(&file_sys_lock);
-  bool success = filesys_remove(file);
+  success = filesys_remove(file);
   lock_release(&file_sys_lock);
+
+  // Return success
   return success;
 }
 
+/* Open the file with the given name */
 static int sys_open(const char* file) 
 {
   // Translate ptr
   file = create_kernel_ptr((const void *)file);
 
-  lock_acquire(&file_sys_lock);
-
-  struct file* f;
+  // Local variables
   struct thread* cur = thread_current();
+  struct file* f;
   struct process_file* pf;
 
+  // Open the file
+  lock_acquire(&file_sys_lock);
   f = filesys_open(file);
   if(f == NULL)
   {
@@ -219,24 +282,30 @@ static int sys_open(const char* file)
     return -1;
   }
 
+  // Create process file struct for the file
   pf = malloc(sizeof(struct process_file));
   pf->file = f;
   pf->file_descriptor = cur->fd++;
   lock_init(&pf->file_lock);
   list_push_back(&cur->file_list, &pf->elem);
   lock_release(&file_sys_lock);
+
+  // Only return it's file descriptor
   return pf->file_descriptor;
 }
 
-
+/* Get the size of the specified file */
 static int sys_filesize(int fd)
 {
+  // Local variables
   int file_size;
-
   struct process_file* pf;
+
+  // Get the corresponding process file
   if((pf = get_process_file(fd)) == NULL)
     return(-1);
 
+  // Check if file* is NULL
   lock_acquire(&(pf->file_lock));
   if(pf->file == NULL)
   {
@@ -244,12 +313,13 @@ static int sys_filesize(int fd)
     return -1;
   }
 
+  // Get file size
   file_size = file_length(pf->file);
   lock_release(&(pf->file_lock));
   return file_size;
 }
 
-
+/* Read from the given file */
 static int sys_read(int fd, void* buffer, unsigned size)
 {
   // Block reads from STDOUT
@@ -268,11 +338,12 @@ static int sys_read(int fd, void* buffer, unsigned size)
     return size;
   }
 
-  // Read from file
+  // Get the corresponding process file
   struct process_file* pf;
   if((pf = get_process_file(fd)) == NULL)
     return(-1);
 
+  // Validate file*
   lock_acquire(&pf->file_lock);
   if(pf->file == NULL)
   {
@@ -280,13 +351,14 @@ static int sys_read(int fd, void* buffer, unsigned size)
     return(-1);
   }
 
+  // Perform actual read
   int read = -1;
   read = file_read(pf->file, buffer, size);
   lock_release(&pf->file_lock);
   return read;
 }
 
-
+/* Write to the given file */
 static int sys_write(int fd, const void* buffer, unsigned size)
 {
   // Block writes to STDIN
@@ -303,11 +375,12 @@ static int sys_write(int fd, const void* buffer, unsigned size)
     return(size);
   }
 
-  // Write to file
+  // Get the corresponding process file
   struct process_file* pf;
   if((pf = get_process_file(fd)) == NULL)
     return(-1);
 
+  // Validate file*
   lock_acquire(&pf->file_lock);
   if(pf->file == NULL)
   {
@@ -315,19 +388,22 @@ static int sys_write(int fd, const void* buffer, unsigned size)
     return(-1);
   }
 
+  // Perform actual write
   int written = -1;
   written = file_write(pf->file, buffer, size);
   lock_release(&pf->file_lock);
   return written;
 }
 
-
+/* Set the read/write position in the given file to the specified position */
 static void sys_seek(int fd, unsigned position)
 {
+  // Get the corresponding process file
   struct process_file* pf;
   if((pf = get_process_file(fd)) == NULL)
     return;
 
+  // Validate file*
   lock_acquire(&(pf->file_lock));
   if(pf->file == NULL)
   {
@@ -335,19 +411,20 @@ static void sys_seek(int fd, unsigned position)
     return;
   }
 
+  // Perform actual seek
   file_seek(pf->file, position);
   lock_release(&(pf->file_lock));
 }
 
-
+/* Get the current read/write position in the given file */
 static unsigned sys_tell(int fd)
 {
-  off_t pos;
-
+  // Get the corresponding process file
   struct process_file* pf;
   if((pf = get_process_file(fd)) == NULL)
     return(-1);
 
+  // Validate file*
   lock_acquire(&pf->file_lock);
   if(pf->file == NULL)
   {
@@ -355,22 +432,25 @@ static unsigned sys_tell(int fd)
     return -1;
   }
 
-  pos = file_tell(pf->file);
+  // Perform actual tell
+  off_t pos = file_tell(pf->file);
   lock_release(&pf->file_lock);
   return pos;
 }
 
-
+/* Close the specified file */
 static void sys_close(int fd) 
 {
   // Block closing STDOUT & STDIN
   if((fd == STDIN_FILENO) || (fd == STDOUT_FILENO))
     return;
 
+  // Get the corresponding process file
   struct process_file* pf;
   if((pf = get_process_file(fd)) == NULL)
     return;
 
+  // Validate file*
   lock_acquire(&pf->file_lock);
   if(pf->file == NULL)
   {
@@ -378,45 +458,9 @@ static void sys_close(int fd)
     return;
   }
 
+  // Perform actual removal
   file_close(pf->file);
   list_remove(&pf->elem);
-
   lock_release(&pf->file_lock);
   free(pf);
-}
-
-static void get_args(struct intr_frame *f, int* args, int n)
-{
-  // Stack pointer is pointing at the syscall number (int), args start just past that
-  int * stack_args = f->esp + sizeof(int);
-
-  for (int i = 0; i < n; i++)
-    {
-      if (!is_user_vaddr((const void *)stack_args))
-	      sys_exit(-1);
-
-      // Copy arg from stack to caller's buffer
-      args[i] = stack_args[i];
-    }
-}
-
-
-bool valid_ptr(const void* ptr)
-{
-  return(is_user_vaddr(ptr) && (ptr >= EXECUTABLE_START));
-}
-
-
-void * create_kernel_ptr(const void* ptr)
-{
-  // TO DO: Need to check if all bytes within range are correct
-  // for strings + buffers
-  if (!valid_ptr(ptr))
-    sys_exit(-1);
-  void *temp = pagedir_get_page(thread_current()->pagedir, ptr);
-  if (!temp)
-    {
-      sys_exit(-1);
-    }
-  return temp;
 }
