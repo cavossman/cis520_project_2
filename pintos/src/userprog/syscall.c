@@ -5,6 +5,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
+#include "devices/input.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/malloc.h"
@@ -43,7 +44,7 @@ static unsigned sys_tell(int fd);
 static void sys_close(int fd);
 
 bool valid_ptr(const void* ptr);
-int create_kernel_ptr(const void* ptr);
+void * create_kernel_ptr(const void* ptr);
 
 static void get_args(struct intr_frame *f, int* args, int n);
 
@@ -77,7 +78,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_EXEC:
     {
       get_args(f, args, 1);
-      args[0] = create_kernel_ptr((const void *)args[0]);
+      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_exec((const char *)args[0]);
       break;
     }
@@ -90,18 +91,18 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CREATE:
     {
       get_args(f, args, 2);
-      args[0] = create_kernel_ptr((const void *)args[0]);
+      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_create((const char *)args[0], (unsigned) args[1]);
       break;
     }
     case SYS_REMOVE:
       get_args(f, args, 1);
-      args[0] = create_kernel_ptr((const void *)args[0]);
+      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_remove((const char *) args[0]);
       break;
     case SYS_OPEN:
       get_args(f, &args[0], 1);
-      args[0] = create_kernel_ptr((const void *)args[0]);
+      args[0] = (int)create_kernel_ptr((const void *)args[0]);
       f->eax = sys_open((const char *)args[0]);
       break;
     case SYS_FILESIZE:
@@ -109,12 +110,12 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_filesize(args[0]);
       break;
     case SYS_READ:
-      //sys_read();
+      get_args(f, args, 3);
+      f->eax = sys_read(args[0], (void *)args[1], (unsigned)args[2]);
       break;
     case SYS_WRITE:
       get_args(f, args, 3);
-      //sys_write();
-      printf("%s", (char *)args[1]);
+      f->eax = sys_write(args[0], (const void *)args[1], (unsigned)args[2]);
       break;
     case SYS_SEEK:
       get_args(f, args, 2);
@@ -223,8 +224,8 @@ static int sys_open(const char* file)
   pf = malloc(sizeof(struct process_file));
   pf->file = f;
   pf->file_descriptor = cur->fd++;
+  lock_init(&pf->file_lock);
   list_push_back(&cur->file_list, &pf->elem);
-
   lock_release(&file_sys_lock);
   return pf->file_descriptor;
 }
@@ -234,7 +235,10 @@ static int sys_filesize(int fd)
 {
   int file_size;
 
-  struct process_file* pf = get_process_file(fd);
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return(-1);
+
   lock_acquire(&(pf->file_lock));
   if(pf->file == NULL)
   {
@@ -248,13 +252,84 @@ static int sys_filesize(int fd)
 }
 
 
-static int sys_read(int fd, void* buffer, unsigned size) {}
-static int sys_write(int fd, const void* buffer, unsigned size) {}
+static int sys_read(int fd, void* buffer, unsigned size)
+{
+  // Block reads from STDOUT
+  if(fd == STDOUT_FILENO)
+    return(-1);
+  
+  // Translate buffer
+  buffer = create_kernel_ptr(buffer);
+
+  // Read from STDIN
+  if(fd == STDIN_FILENO)
+  {
+    uint8_t * bufIdx = (uint8_t *)buffer;
+    while(bufIdx < ((uint8_t *)buffer + size))
+      *bufIdx++ = input_getc();
+    return size;
+  }
+
+  // Read from file
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return(-1);
+
+  lock_acquire(&pf->file_lock);
+  if(pf->file == NULL)
+  {
+    lock_release(&(pf->file_lock));
+    return(-1);
+  }
+
+  int read = -1;
+  read = file_read(pf->file, buffer, size);
+  lock_release(&pf->file_lock);
+  return read;
+}
+
+
+static int sys_write(int fd, const void* buffer, unsigned size)
+{
+  // Block writes to STDIN
+  if(fd == STDIN_FILENO)
+    return(-1);
+
+  // Translate buffer
+  buffer = create_kernel_ptr(buffer);
+
+  // Write entire buf to console in one go
+  if(fd == STDOUT_FILENO)
+  {
+    putbuf((const char *)buffer, size);
+    return(size);
+  }
+
+  // Write to file
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return(-1);
+
+  lock_acquire(&pf->file_lock);
+  if(pf->file == NULL)
+  {
+    lock_release(&(pf->file_lock));
+    return(-1);
+  }
+
+  int written = -1;
+  written = file_write(pf->file, buffer, size);
+  lock_release(&pf->file_lock);
+  return written;
+}
 
 
 static void sys_seek(int fd, unsigned position)
 {
-  struct process_file* pf = get_process_file(fd);
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return;
+
   lock_acquire(&(pf->file_lock));
   if(pf->file == NULL)
   {
@@ -271,9 +346,11 @@ static unsigned sys_tell(int fd)
 {
   off_t pos;
 
-  struct process_file* pf = get_process_file(fd);
-  lock_acquire(&(pf->file_lock));
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return(-1);
 
+  lock_acquire(&pf->file_lock);
   if(pf->file == NULL)
   {
     lock_release(&(pf->file_lock));
@@ -281,39 +358,33 @@ static unsigned sys_tell(int fd)
   }
 
   pos = file_tell(pf->file);
-  lock_release(&(pf->file_lock));
+  lock_release(&pf->file_lock);
   return pos;
 }
 
 
 static void sys_close(int fd) 
 {
-  if (file_sys_lock.holder != NULL || fd <= STDOUT_FILENO || fd >= 0x20101234)
-    sys_exit(-1);
+  // Block closing STDOUT & STDIN
+  if((fd == STDIN_FILENO) || (fd == STDOUT_FILENO))
+    return;
 
-  lock_acquire(&file_sys_lock);
+  struct process_file* pf;
+  if((pf = get_process_file(fd)) == NULL)
+    return;
 
-  struct thread *cur = thread_current();
-  struct list_elem *next, *e = list_begin(&cur->file_list);
-
-  while (e != list_end (&cur->file_list))
+  lock_acquire(&pf->file_lock);
+  if(pf->file == NULL)
   {
-    next = list_next(e);
-    struct process_file *pf = list_entry (e, struct process_file, elem);
-    if (fd == pf->file_descriptor || fd == -1)
-      {
-        file_close(pf->file);
-        list_remove(&pf->elem);
-        free(pf);
-        if (fd != -1)
-        {
-          return;
-        }
-      }
-      e = next;
+    lock_release(&pf->file_lock);
+    return;
   }
 
-  lock_release(&file_sys_lock);
+  file_close(pf->file);
+  list_remove(&pf->elem);
+
+  lock_release(&pf->file_lock);
+  free(pf);
 }
 
 static void get_args(struct intr_frame *f, int* args, int n)
@@ -331,13 +402,14 @@ static void get_args(struct intr_frame *f, int* args, int n)
     }
 }
 
+
 bool valid_ptr(const void* ptr)
 {
-  return(!(!is_user_vaddr(ptr) || ptr < EXECUTABLE_START ));
+  return(is_user_vaddr(ptr) && (ptr >= EXECUTABLE_START));
 }
 
 
-int create_kernel_ptr(const void* ptr)
+void * create_kernel_ptr(const void* ptr)
 {
   // TO DO: Need to check if all bytes within range are correct
   // for strings + buffers
@@ -348,5 +420,5 @@ int create_kernel_ptr(const void* ptr)
     {
       sys_exit(-1);
     }
-  return (int) temp;
+  return temp;
 }
