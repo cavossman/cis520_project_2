@@ -30,7 +30,6 @@ static void syscall_handler (struct intr_frame *);
 typedef int pid_t;
 
 static void sys_halt(void);
-static void sys_exit(int status);
 static pid_t sys_exec(const char* cmd_line);
 static int sys_wait(pid_t pid);
 static bool sys_create(const char* file, unsigned initial_size);
@@ -194,7 +193,7 @@ static void sys_halt()
 }
 
 /* Exit this process */
-static void sys_exit(int status)
+void sys_exit(int status)
 {
   // Save exit status
   struct thread * cur = thread_current();
